@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { AdminRepartidores } from './pages/AdminRepartidores'
 import { DeliveryView } from './pages/DeliveryView'
 import { History } from './pages/History'
 import { Login } from './pages/Login'
@@ -18,8 +19,8 @@ export default function App() {
         <Route path="/pedidos/:id" element={<ProtectedRoute><OrderDetail /></ProtectedRoute>} />
         <Route path="/historial" element={<ProtectedRoute><History /></ProtectedRoute>} />
         <Route path="/menu" element={<ProtectedRoute><MenuAdmin /></ProtectedRoute>} />
+        <Route path="/repartidores" element={<ProtectedRoute><AdminRepartidores /></ProtectedRoute>} />
 
-        {/* Redirigir raíz */}
         <Route path="*" element={<ProtectedRoute><OrdersBoard /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>

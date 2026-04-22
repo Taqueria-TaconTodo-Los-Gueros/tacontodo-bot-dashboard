@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useOrders } from '../hooks/useOrders'
 import { OrderCard } from '../components/OrderCard'
@@ -30,7 +31,10 @@ export function OrdersBoard() {
       <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
         <h1 className="text-lg font-bold text-gray-800">🌮 Pedidos</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 hidden sm:block">{user?.email}</span>
+          <Link to="/menu" className="text-sm text-gray-500 hover:text-brand-600 transition-colors">Menú</Link>
+          <Link to="/repartidores" className="text-sm text-gray-500 hover:text-brand-600 transition-colors">Repartidores</Link>
+          <Link to="/historial" className="text-sm text-gray-500 hover:text-brand-600 transition-colors hidden sm:block">Historial</Link>
+          <span className="text-xs text-gray-400 hidden sm:block">{user?.email}</span>
           <button onClick={() => signOut()} className="text-sm text-gray-500 hover:text-red-600 transition-colors">
             Salir
           </button>

@@ -16,6 +16,9 @@ export function MenuAdmin() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [editingPrecio, setEditingPrecio] = useState<string | null>(null)
+  const [editPrecioVal, setEditPrecioVal] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => { fetchMenu() }, [])
 
@@ -50,6 +53,20 @@ export function MenuAdmin() {
     setSaving(false)
   }
 
+  async function handleEditPrecio(item: MenuItem) {
+    const nuevo = parseFloat(editPrecioVal)
+    if (isNaN(nuevo) || nuevo < 0) return
+    await supabase.from('menu_items').update({ precio: nuevo }).eq('id', item.id)
+    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, precio: nuevo } : i))
+    setEditingPrecio(null)
+  }
+
+  async function handleDelete(id: string) {
+    await supabase.from('menu_items').delete().eq('id', id)
+    setItems((prev) => prev.filter((i) => i.id !== id))
+    setDeletingId(null)
+  }
+
   const porCategoria = CATEGORIAS.reduce<Record<CategoriaMenu, MenuItem[]>>((acc, cat) => {
     acc[cat] = items.filter((i) => i.categoria === cat)
     return acc
@@ -60,6 +77,7 @@ export function MenuAdmin() {
       <header className="bg-white border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
         <Link to="/pedidos" className="text-brand-600 font-medium text-sm">← Volver</Link>
         <h1 className="text-lg font-bold text-gray-800">Menú</h1>
+        <Link to="/repartidores" className="ml-auto text-sm text-brand-600 font-medium">Repartidores →</Link>
       </header>
 
       <main className="px-4 py-5 max-w-lg mx-auto flex flex-col gap-6">
@@ -120,24 +138,83 @@ export function MenuAdmin() {
                   {porCategoria[cat].map((item) => (
                     <div
                       key={item.id}
-                      className={`bg-white rounded-xl px-4 py-3 shadow-sm border flex items-center justify-between transition-opacity ${
-                        item.disponible ? 'border-gray-100' : 'border-gray-100 opacity-50'
+                      className={`bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 transition-opacity ${
+                        item.disponible ? '' : 'opacity-50'
                       }`}
                     >
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{item.nombre}</p>
-                        <p className="text-xs text-gray-400">${item.precio.toFixed(2)}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{item.nombre}</p>
+
+                          {/* Precio editable */}
+                          {editingPrecio === item.id ? (
+                            <div className="flex items-center gap-1 mt-1">
+                              <span className="text-xs text-gray-400">$</span>
+                              <input
+                                autoFocus
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                value={editPrecioVal}
+                                onChange={(e) => setEditPrecioVal(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleEditPrecio(item)
+                                  if (e.key === 'Escape') setEditingPrecio(null)
+                                }}
+                                className="w-20 border border-brand-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                              />
+                              <button onClick={() => handleEditPrecio(item)} className="text-xs text-green-600 font-semibold">✓</button>
+                              <button onClick={() => setEditingPrecio(null)} className="text-xs text-gray-400">✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setEditingPrecio(item.id); setEditPrecioVal(String(item.precio)) }}
+                              className="text-xs text-gray-400 hover:text-brand-600 transition-colors mt-0.5"
+                              title="Clic para editar precio"
+                            >
+                              ${item.precio.toFixed(2)} ✏️
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => toggleDisponible(item)}
+                            className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                              item.disponible
+                                ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700'
+                                : 'bg-gray-100 text-gray-500 hover:bg-green-100 hover:text-green-700'
+                            }`}
+                          >
+                            {item.disponible ? 'Activo' : 'Inactivo'}
+                          </button>
+
+                          {deletingId === item.id ? (
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => handleDelete(item.id)}
+                                className="text-xs bg-red-600 text-white px-2 py-1.5 rounded-full font-semibold"
+                              >
+                                Eliminar
+                              </button>
+                              <button
+                                onClick={() => setDeletingId(null)}
+                                className="text-xs bg-gray-100 text-gray-600 px-2 py-1.5 rounded-full"
+                              >
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setDeletingId(item.id)}
+                              className="text-xs text-gray-300 hover:text-red-500 transition-colors px-1"
+                              title="Eliminar"
+                            >
+                              🗑
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <button
-                        onClick={() => toggleDisponible(item)}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
-                          item.disponible
-                            ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700'
-                            : 'bg-gray-100 text-gray-500 hover:bg-green-100 hover:text-green-700'
-                        }`}
-                      >
-                        {item.disponible ? 'Disponible' : 'No disponible'}
-                      </button>
                     </div>
                   ))}
                 </div>
