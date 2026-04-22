@@ -4,7 +4,7 @@ import { useOrderDetail } from '../hooks/useOrders'
 import { StatusBadge } from '../components/StatusBadge'
 import { MapView } from '../components/MapView'
 import { Timer } from '../components/Timer'
-import type { EstadoPedido, Repartidor } from '../types'
+import type { Repartidor } from '../types'
 import { ACCION_LABEL, ESTADO_SIGUIENTE } from '../types'
 import { supabase } from '../lib/supabase'
 
