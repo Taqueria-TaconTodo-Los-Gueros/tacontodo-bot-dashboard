@@ -1,0 +1,151 @@
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import type { CategoriaMenu, MenuItem } from '../types'
+
+const CATEGORIAS: CategoriaMenu[] = ['taco', 'bebida', 'extra', 'combo']
+const CAT_LABELS: Record<CategoriaMenu, string> = {
+  taco: '🌮 Tacos', bebida: '🥤 Bebidas', extra: '➕ Extras', combo: '🎁 Combos',
+}
+
+const EMPTY_FORM = { nombre: '', descripcion: '', precio: '', categoria: 'taco' as CategoriaMenu }
+
+export function MenuAdmin() {
+  const [items, setItems] = useState<MenuItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(EMPTY_FORM)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => { fetchMenu() }, [])
+
+  async function fetchMenu() {
+    const { data } = await supabase.from('menu_items').select('*').order('categoria').order('nombre')
+    setItems((data ?? []) as MenuItem[])
+    setLoading(false)
+  }
+
+  async function toggleDisponible(item: MenuItem) {
+    await supabase.from('menu_items').update({ disponible: !item.disponible }).eq('id', item.id)
+    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, disponible: !i.disponible } : i))
+  }
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setMsg('')
+    const { error } = await supabase.from('menu_items').insert({
+      nombre: form.nombre,
+      descripcion: form.descripcion || null,
+      precio: parseFloat(form.precio),
+      categoria: form.categoria,
+    })
+    if (error) {
+      setMsg(`Error: ${error.message}`)
+    } else {
+      setForm(EMPTY_FORM)
+      setMsg('Item agregado ✓')
+      await fetchMenu()
+    }
+    setSaving(false)
+  }
+
+  const porCategoria = CATEGORIAS.reduce<Record<CategoriaMenu, MenuItem[]>>((acc, cat) => {
+    acc[cat] = items.filter((i) => i.categoria === cat)
+    return acc
+  }, { taco: [], bebida: [], extra: [], combo: [] })
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
+        <Link to="/pedidos" className="text-brand-600 font-medium text-sm">← Volver</Link>
+        <h1 className="text-lg font-bold text-gray-800">Menú</h1>
+      </header>
+
+      <main className="px-4 py-5 max-w-lg mx-auto flex flex-col gap-6">
+        {/* Agregar item */}
+        <form onSubmit={handleAdd} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3">
+          <h2 className="font-semibold text-gray-700">Agregar item</h2>
+          <input
+            required
+            placeholder="Nombre"
+            value={form.nombre}
+            onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <input
+            placeholder="Descripción (opcional)"
+            value={form.descripcion}
+            onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <div className="flex gap-2">
+            <input
+              required
+              type="number"
+              min="0"
+              step="0.5"
+              placeholder="Precio $"
+              value={form.precio}
+              onChange={(e) => setForm({ ...form, precio: e.target.value })}
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <select
+              value={form.categoria}
+              onChange={(e) => setForm({ ...form, categoria: e.target.value as CategoriaMenu })}
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {CATEGORIAS.map((c) => <option key={c} value={c}>{CAT_LABELS[c]}</option>)}
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-200 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+          >
+            {saving ? 'Guardando…' : 'Agregar'}
+          </button>
+          {msg && <p className="text-sm text-center text-green-600">{msg}</p>}
+        </form>
+
+        {/* Lista por categoría */}
+        {loading ? (
+          <p className="text-center text-gray-400">Cargando menú…</p>
+        ) : (
+          CATEGORIAS.map((cat) => (
+            porCategoria[cat].length > 0 && (
+              <div key={cat}>
+                <h2 className="font-semibold text-gray-600 mb-2">{CAT_LABELS[cat]}</h2>
+                <div className="flex flex-col gap-2">
+                  {porCategoria[cat].map((item) => (
+                    <div
+                      key={item.id}
+                      className={`bg-white rounded-xl px-4 py-3 shadow-sm border flex items-center justify-between transition-opacity ${
+                        item.disponible ? 'border-gray-100' : 'border-gray-100 opacity-50'
+                      }`}
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{item.nombre}</p>
+                        <p className="text-xs text-gray-400">${item.precio.toFixed(2)}</p>
+                      </div>
+                      <button
+                        onClick={() => toggleDisponible(item)}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                          item.disponible
+                            ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700'
+                            : 'bg-gray-100 text-gray-500 hover:bg-green-100 hover:text-green-700'
+                        }`}
+                      >
+                        {item.disponible ? 'Disponible' : 'No disponible'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          ))
+        )}
+      </main>
+    </div>
+  )
+}
