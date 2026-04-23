@@ -8,32 +8,65 @@ import type { Repartidor } from '../types'
 import { ACCION_LABEL, ESTADO_SIGUIENTE } from '../types'
 import { supabase } from '../lib/supabase'
 
+interface RepartidorConCarga extends Repartidor {
+  entregas_activas: number
+}
+
+const esRecoger = (direccion: string | null) => direccion === 'Recoger en local'
+
 export function OrderDetail() {
   const { id } = useParams<{ id: string }>()
   const { pedido, loading } = useOrderDetail(id ?? '')
-  const [repartidores, setRepartidores] = useState<Repartidor[]>([])
+  const [repartidores, setRepartidores] = useState<RepartidorConCarga[]>([])
   const [selectedRepartidor, setSelectedRepartidor] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    supabase.from('repartidores').select('*').eq('activo', true).then(({ data }) => {
-      setRepartidores((data ?? []) as Repartidor[])
+    if (pedido?.estado === 'listo' && !esRecoger(pedido.direccion_texto)) {
+      fetchRepartidoresConCarga()
+    }
+  }, [pedido?.estado])
+
+  async function fetchRepartidoresConCarga() {
+    const [{ data: reps }, { data: activos }] = await Promise.all([
+      supabase.from('repartidores').select('*').eq('activo', true),
+      supabase.from('pedidos').select('repartidor_id').eq('estado', 'en_camino'),
+    ])
+
+    const cargas: Record<string, number> = {}
+    activos?.forEach((p) => {
+      if (p.repartidor_id) cargas[p.repartidor_id] = (cargas[p.repartidor_id] || 0) + 1
     })
-  }, [])
+
+    const conCarga: RepartidorConCarga[] = (reps ?? []).map((r) => ({
+      ...(r as Repartidor),
+      entregas_activas: cargas[r.id] || 0,
+    })).sort((a, b) => a.entregas_activas - b.entregas_activas)
+
+    setRepartidores(conCarga)
+
+    // Auto-asignar al más libre
+    if (conCarga.length > 0) setSelectedRepartidor(conCarga[0].id)
+  }
 
   if (loading) return <div className="p-8 text-center text-gray-400">Cargando…</div>
   if (!pedido) return <div className="p-8 text-center text-gray-400">Pedido no encontrado.</div>
 
-  const siguienteEstado = ESTADO_SIGUIENTE[pedido.estado]
-  const accionLabel = ACCION_LABEL[pedido.estado]
+  const esPedidoRecoger = esRecoger(pedido.direccion_texto)
+  const siguienteEstado = esPedidoRecoger && pedido.estado === 'listo'
+    ? 'entregado' as const
+    : ESTADO_SIGUIENTE[pedido.estado]
+  const accionLabel = esPedidoRecoger && pedido.estado === 'listo'
+    ? 'Marcar entregado 🏪'
+    : ACCION_LABEL[pedido.estado]
 
   async function handleAction() {
     if (!siguienteEstado || !pedido) return
     setSaving(true)
     setMsg('')
     const update: Record<string, string> = { estado: siguienteEstado }
-    if (pedido.estado === 'listo' && selectedRepartidor) {
+    if (pedido.estado === 'listo' && !esPedidoRecoger && selectedRepartidor) {
       update.repartidor_id = selectedRepartidor
     }
     const { error } = await supabase.from('pedidos').update(update).eq('id', pedido.id)
@@ -46,6 +79,9 @@ export function OrderDetail() {
       <header className="bg-white border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
         <Link to="/pedidos" className="text-brand-600 font-medium text-sm">← Volver</Link>
         <h1 className="text-lg font-bold text-gray-800">Pedido #{pedido.numero_pedido}</h1>
+        {esPedidoRecoger && (
+          <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-2 py-0.5 rounded-full">🏪 Recoger en local</span>
+        )}
       </header>
 
       <main className="px-4 py-6 max-w-lg mx-auto flex flex-col gap-5">
@@ -76,10 +112,14 @@ export function OrderDetail() {
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-2">
           <h2 className="font-semibold text-gray-700">Entrega</h2>
           <p className="text-sm text-gray-600">
+            <span className="font-medium">Tipo:</span>{' '}
+            {esPedidoRecoger ? '🏪 Recoger en local' : '🛵 Domicilio'}
+          </p>
+          <p className="text-sm text-gray-600">
             <span className="font-medium">Pago:</span>{' '}
             {pedido.metodo_pago === 'efectivo' ? '💵 Efectivo' : '📲 Transferencia'}
           </p>
-          {pedido.direccion_texto && (
+          {pedido.direccion_texto && !esPedidoRecoger && (
             <p className="text-sm text-gray-600">
               <span className="font-medium">Dirección:</span> {pedido.direccion_texto}
             </p>
@@ -106,21 +146,52 @@ export function OrderDetail() {
         {/* Acción */}
         {accionLabel && (
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3">
-            {pedido.estado === 'listo' && (
-              <select
-                value={selectedRepartidor}
-                onChange={(e) => setSelectedRepartidor(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              >
-                <option value="">— Seleccionar repartidor —</option>
-                {repartidores.map((r) => (
-                  <option key={r.id} value={r.id}>{r.nombre}</option>
-                ))}
-              </select>
+
+            {/* Selector de repartidor (solo domicilio en estado listo) */}
+            {pedido.estado === 'listo' && !esPedidoRecoger && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-700">Asignar repartidor</p>
+                  <span className="text-xs text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">⚖️ Auto-balanceado</span>
+                </div>
+
+                {/* Tarjetas de carga */}
+                <div className="flex flex-col gap-2">
+                  {repartidores.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setSelectedRepartidor(r.id)}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all text-left ${
+                        selectedRepartidor === r.id
+                          ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300'
+                          : 'border-gray-200 hover:border-gray-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${r.entregas_activas === 0 ? 'bg-green-500' : r.entregas_activas === 1 ? 'bg-yellow-400' : 'bg-red-400'}`} />
+                        <span className="text-sm font-medium text-gray-800">{r.nombre}</span>
+                        {selectedRepartidor === r.id && (
+                          <span className="text-xs text-brand-600 font-semibold">✓ Seleccionado</span>
+                        )}
+                      </div>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        r.entregas_activas === 0
+                          ? 'bg-green-100 text-green-700'
+                          : r.entregas_activas === 1
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
+                        {r.entregas_activas === 0 ? 'Libre' : `${r.entregas_activas} activa${r.entregas_activas > 1 ? 's' : ''}`}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
+
             <button
               onClick={handleAction}
-              disabled={saving || (pedido.estado === 'listo' && !selectedRepartidor)}
+              disabled={saving || (pedido.estado === 'listo' && !esPedidoRecoger && !selectedRepartidor)}
               className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold py-3 rounded-lg transition-colors"
             >
               {saving ? 'Guardando…' : accionLabel}
