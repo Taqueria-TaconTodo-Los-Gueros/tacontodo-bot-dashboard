@@ -31,6 +31,7 @@ export function OrdersBoard() {
       <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
         <h1 className="text-lg font-bold text-gray-800">🌮 Pedidos</h1>
         <div className="flex items-center gap-3">
+          <Link to="/comanda" className="text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors">🧾 Comanda</Link>
           <Link to="/menu" className="text-sm text-gray-500 hover:text-brand-600 transition-colors">Menú</Link>
           <Link to="/repartidores" className="text-sm text-gray-500 hover:text-brand-600 transition-colors">Repartidores</Link>
           <Link to="/historial" className="text-sm text-gray-500 hover:text-brand-600 transition-colors hidden sm:block">Historial</Link>

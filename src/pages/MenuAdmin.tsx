@@ -5,7 +5,7 @@ import type { CategoriaMenu, MenuItem } from '../types'
 
 const CATEGORIAS: CategoriaMenu[] = ['taco', 'bebida', 'extra', 'combo']
 const CAT_LABELS: Record<CategoriaMenu, string> = {
-  taco: '🌮 Tacos', bebida: '🥤 Bebidas', extra: '➕ Extras', combo: '🎁 Combos',
+  taco: '🌮 Tacos', bebida: '🥤 Bebidas', extra: '➕ Extras', combo: '🎁 Promociones',
 }
 
 const EMPTY_FORM = { nombre: '', descripcion: '', precio: '', categoria: 'taco' as CategoriaMenu }
