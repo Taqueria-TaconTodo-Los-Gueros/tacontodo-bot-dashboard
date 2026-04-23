@@ -7,9 +7,12 @@ import { Timer } from '../components/Timer'
 import type { Repartidor } from '../types'
 import { ACCION_LABEL, ESTADO_SIGUIENTE } from '../types'
 import { supabase } from '../lib/supabase'
+import { calcularPuntuacion, haversineKm, TAQUERIA_LAT, TAQUERIA_LNG } from '../lib/geo'
 
 interface RepartidorConCarga extends Repartidor {
   entregas_activas: number
+  distancia_km: number
+  puntuacion: number
 }
 
 const esRecoger = (direccion: string | null) => direccion === 'Recoger en local'
@@ -26,27 +29,44 @@ export function OrderDetail() {
     if (pedido?.estado === 'listo' && !esRecoger(pedido.direccion_texto)) {
       fetchRepartidoresConCarga()
     }
-  }, [pedido?.estado])
+  }, [pedido?.estado, pedido?.id])
 
   async function fetchRepartidoresConCarga() {
     const [{ data: reps }, { data: activos }] = await Promise.all([
       supabase.from('repartidores').select('*').eq('activo', true),
-      supabase.from('pedidos').select('repartidor_id').eq('estado', 'en_camino'),
+      supabase.from('pedidos')
+        .select('repartidor_id, ubicacion_lat, ubicacion_lng')
+        .eq('estado', 'en_camino'),
     ])
 
+    // Carga de trabajo y última ubicación conocida por repartidor
     const cargas: Record<string, number> = {}
+    const ultimaUbicacion: Record<string, { lat: number; lng: number }> = {}
+
     activos?.forEach((p) => {
-      if (p.repartidor_id) cargas[p.repartidor_id] = (cargas[p.repartidor_id] || 0) + 1
+      if (!p.repartidor_id) return
+      cargas[p.repartidor_id] = (cargas[p.repartidor_id] || 0) + 1
+      if (p.ubicacion_lat && p.ubicacion_lng) {
+        ultimaUbicacion[p.repartidor_id] = { lat: p.ubicacion_lat, lng: p.ubicacion_lng }
+      }
     })
 
-    const conCarga: RepartidorConCarga[] = (reps ?? []).map((r) => ({
-      ...(r as Repartidor),
-      entregas_activas: cargas[r.id] || 0,
-    })).sort((a, b) => a.entregas_activas - b.entregas_activas)
+    // Destino del pedido actual
+    const destLat = pedido?.ubicacion_lat ?? TAQUERIA_LAT
+    const destLng = pedido?.ubicacion_lng ?? TAQUERIA_LNG
+
+    const conCarga: RepartidorConCarga[] = (reps ?? []).map((r) => {
+      const entregas_activas = cargas[r.id] || 0
+
+      // Posición estimada: última entrega activa o la taquería si está libre
+      const pos = ultimaUbicacion[r.id] ?? { lat: TAQUERIA_LAT, lng: TAQUERIA_LNG }
+      const distancia_km = haversineKm(pos.lat, pos.lng, destLat, destLng)
+      const puntuacion = calcularPuntuacion(distancia_km, entregas_activas)
+
+      return { ...(r as Repartidor), entregas_activas, distancia_km, puntuacion }
+    }).sort((a, b) => a.puntuacion - b.puntuacion)
 
     setRepartidores(conCarga)
-
-    // Auto-asignar al más libre
     if (conCarga.length > 0) setSelectedRepartidor(conCarga[0].id)
   }
 
@@ -155,9 +175,9 @@ export function OrderDetail() {
                   <span className="text-xs text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">⚖️ Auto-balanceado</span>
                 </div>
 
-                {/* Tarjetas de carga */}
+                {/* Tarjetas de repartidor con distancia y carga */}
                 <div className="flex flex-col gap-2">
-                  {repartidores.map((r) => (
+                  {repartidores.map((r, idx) => (
                     <button
                       key={r.id}
                       onClick={() => setSelectedRepartidor(r.id)}
@@ -168,13 +188,27 @@ export function OrderDetail() {
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${r.entregas_activas === 0 ? 'bg-green-500' : r.entregas_activas === 1 ? 'bg-yellow-400' : 'bg-red-400'}`} />
-                        <span className="text-sm font-medium text-gray-800">{r.nombre}</span>
-                        {selectedRepartidor === r.id && (
-                          <span className="text-xs text-brand-600 font-semibold">✓ Seleccionado</span>
-                        )}
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          r.entregas_activas === 0 ? 'bg-green-500' : r.entregas_activas === 1 ? 'bg-yellow-400' : 'bg-red-400'
+                        }`} />
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium text-gray-800">{r.nombre}</span>
+                            {idx === 0 && (
+                              <span className="text-xs bg-brand-100 text-brand-700 font-semibold px-1.5 py-0.5 rounded">⭐ Recomendado</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-gray-400">
+                              📍 {r.distancia_km < 1
+                                ? `${Math.round(r.distancia_km * 1000)} m`
+                                : `${r.distancia_km.toFixed(1)} km`}
+                              {r.entregas_activas > 0 ? ' (pos. estimada)' : ' (desde taquería)'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
                         r.entregas_activas === 0
                           ? 'bg-green-100 text-green-700'
                           : r.entregas_activas === 1

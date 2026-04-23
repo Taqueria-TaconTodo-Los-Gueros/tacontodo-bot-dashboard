@@ -5,9 +5,12 @@ import { ACCION_LABEL, ESTADO_SIGUIENTE } from '../types'
 import { StatusBadge } from './StatusBadge'
 import { Timer } from './Timer'
 import { supabase } from '../lib/supabase'
+import { calcularPuntuacion, haversineKm, TAQUERIA_LAT, TAQUERIA_LNG } from '../lib/geo'
 
 interface RepartidorConCarga extends Repartidor {
   entregas_activas: number
+  distancia_km: number
+  puntuacion: number
 }
 
 interface OrderCardProps {
@@ -41,20 +44,32 @@ export function OrderCard({ pedido, repartidores, onUpdateEstado }: OrderCardPro
   async function fetchCargas() {
     const { data } = await supabase
       .from('pedidos')
-      .select('repartidor_id')
+      .select('repartidor_id, ubicacion_lat, ubicacion_lng')
       .eq('estado', 'en_camino')
-    const mapa: Record<string, number> = {}
-    data?.forEach((p) => {
-      if (p.repartidor_id) mapa[p.repartidor_id] = (mapa[p.repartidor_id] || 0) + 1
-    })
-    setCargas(mapa)
 
-    // Auto-asignar al repartidor con menor carga
-    const conCarga: RepartidorConCarga[] = repartidores.map((r) => ({
-      ...r,
-      entregas_activas: mapa[r.id] || 0,
-    }))
-    const mejor = conCarga.sort((a, b) => a.entregas_activas - b.entregas_activas)[0]
+    const cargas: Record<string, number> = {}
+    const ultimaUbicacion: Record<string, { lat: number; lng: number }> = {}
+    data?.forEach((p) => {
+      if (!p.repartidor_id) return
+      cargas[p.repartidor_id] = (cargas[p.repartidor_id] || 0) + 1
+      if (p.ubicacion_lat && p.ubicacion_lng) {
+        ultimaUbicacion[p.repartidor_id] = { lat: p.ubicacion_lat, lng: p.ubicacion_lng }
+      }
+    })
+    setCargas(cargas)
+
+    const destLat = pedido.ubicacion_lat ?? TAQUERIA_LAT
+    const destLng = pedido.ubicacion_lng ?? TAQUERIA_LNG
+
+    const conCarga: RepartidorConCarga[] = repartidores.map((r) => {
+      const entregas_activas = cargas[r.id] || 0
+      const pos = ultimaUbicacion[r.id] ?? { lat: TAQUERIA_LAT, lng: TAQUERIA_LNG }
+      const distancia_km = haversineKm(pos.lat, pos.lng, destLat, destLng)
+      const puntuacion = calcularPuntuacion(distancia_km, entregas_activas)
+      return { ...r, entregas_activas, distancia_km, puntuacion }
+    }).sort((a, b) => a.puntuacion - b.puntuacion)
+
+    const mejor = conCarga[0]
     if (mejor) setSelectedRepartidor(mejor.id)
   }
 
@@ -128,11 +143,14 @@ export function OrderCard({ pedido, repartidores, onUpdateEstado }: OrderCardPro
           >
             <option value="">— Seleccionar repartidor —</option>
             {repartidores
-              .map((r) => ({ ...r, entregas_activas: cargas[r.id] || 0 }))
+              .map((r) => {
+                const entregas = cargas[r.id] || 0
+                return { ...r, entregas_activas: entregas }
+              })
               .sort((a, b) => a.entregas_activas - b.entregas_activas)
-              .map((r) => (
+              .map((r, idx) => (
                 <option key={r.id} value={r.id}>
-                  {r.nombre} — {r.entregas_activas === 0 ? 'Libre ✅' : `${r.entregas_activas} entrega${r.entregas_activas > 1 ? 's' : ''} activa${r.entregas_activas > 1 ? 's' : ''}`}
+                  {idx === 0 ? '⭐ ' : ''}{r.nombre} — {r.entregas_activas === 0 ? 'Libre ✅' : `${r.entregas_activas} activa${r.entregas_activas > 1 ? 's' : ''}`}
                 </option>
               ))}
           </select>
