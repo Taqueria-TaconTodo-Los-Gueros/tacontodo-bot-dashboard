@@ -21,6 +21,9 @@ export function Comanda() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [categoriaActiva, setCategoriaActiva] = useState<CategoriaMenu>('taco')
   const [clienteNombre, setClienteNombre] = useState('')
+  const [clienteTelefono, setClienteTelefono] = useState('')
+  const [direccionTexto, setDireccionTexto] = useState('')
+  const [mapsLink, setMapsLink] = useState('')
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'transferencia'>('efectivo')
   const [tipoEntrega, setTipoEntrega] = useState<'domicilio' | 'local'>('local')
   const [saving, setSaving] = useState(false)
@@ -68,8 +71,30 @@ export function Comanda() {
     return acc
   }, { taco: [], bebida: [], extra: [], combo: [] })
 
+  function parseMapsLink(link: string): { lat: number; lng: number } | null {
+    if (!link.trim()) return null
+    const patterns = [
+      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,
+      /^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/,
+    ]
+    for (const re of patterns) {
+      const m = link.match(re)
+      if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) }
+    }
+    return null
+  }
+
   async function handleSubmit() {
     if (cart.length === 0) return
+
+    if (tipoEntrega === 'domicilio' && !direccionTexto.trim()) {
+      setMsg({ texto: 'Falta la dirección del cliente', tipo: 'error' })
+      return
+    }
+
     setSaving(true)
     setMsg(null)
 
@@ -81,14 +106,13 @@ export function Comanda() {
       subtotal: parseFloat((c.precio * c.cantidad).toFixed(2)),
     }))
 
-    // Cliente placeholder para comandas locales
-    const phoneLocal = `local_${Date.now()}`
+    const telefonoLimpio = clienteTelefono.replace(/\D/g, '')
+    const phoneKey = telefonoLimpio ? `local_${telefonoLimpio}` : `local_${Date.now()}`
     const nombreCliente = clienteNombre.trim() || 'Cliente local'
 
-    // Crear o reutilizar cliente "local"
     const { data: clienteData } = await supabase
       .from('clientes')
-      .upsert({ whatsapp_phone: phoneLocal, nombre: nombreCliente }, { onConflict: 'whatsapp_phone' })
+      .upsert({ whatsapp_phone: phoneKey, nombre: nombreCliente }, { onConflict: 'whatsapp_phone' })
       .select('id')
       .single()
 
@@ -98,14 +122,28 @@ export function Comanda() {
       return
     }
 
+    const coords = tipoEntrega === 'domicilio' ? parseMapsLink(mapsLink) : null
+    const direccionFinal =
+      tipoEntrega === 'local' ? 'Recoger en local' : direccionTexto.trim()
+
+    const notasExtra = [
+      `Comanda: ${nombreCliente}`,
+      telefonoLimpio ? `Tel: ${telefonoLimpio}` : null,
+      tipoEntrega === 'domicilio' && mapsLink.trim() && !coords
+        ? `Maps: ${mapsLink.trim()}`
+        : null,
+    ].filter(Boolean).join(' | ')
+
     const { error } = await supabase.from('pedidos').insert({
       cliente_id: clienteData.id,
       estado: 'recibido',
       items,
       total: parseFloat(total.toFixed(2)),
       metodo_pago: metodoPago,
-      direccion_texto: tipoEntrega === 'local' ? 'Recoger en local' : null,
-      notas: `Comanda: ${nombreCliente}`,
+      direccion_texto: direccionFinal,
+      ubicacion_lat: coords?.lat ?? null,
+      ubicacion_lng: coords?.lng ?? null,
+      notas: notasExtra,
     })
 
     if (error) {
@@ -113,6 +151,9 @@ export function Comanda() {
     } else {
       setCart([])
       setClienteNombre('')
+      setClienteTelefono('')
+      setDireccionTexto('')
+      setMapsLink('')
       setMsg({ texto: '✅ Pedido creado en el tablero', tipo: 'ok' })
       setTimeout(() => setMsg(null), 3000)
     }
@@ -265,6 +306,36 @@ export function Comanda() {
                 🛵 Domicilio
               </button>
             </div>
+
+            {tipoEntrega === 'domicilio' && (
+              <div className="flex flex-col gap-2 bg-brand-50 border border-brand-100 rounded-lg p-2">
+                <input
+                  placeholder="Teléfono del cliente (opcional)"
+                  value={clienteTelefono}
+                  onChange={(e) => setClienteTelefono(e.target.value)}
+                  inputMode="tel"
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <textarea
+                  placeholder="📍 Dirección (calle, número, colonia, referencias)"
+                  value={direccionTexto}
+                  onChange={(e) => setDireccionTexto(e.target.value)}
+                  rows={2}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                />
+                <input
+                  placeholder="Link de Google Maps (opcional, para el mapa)"
+                  value={mapsLink}
+                  onChange={(e) => setMapsLink(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                {mapsLink.trim() && (
+                  parseMapsLink(mapsLink)
+                    ? <p className="text-[11px] text-green-600">✓ Coordenadas detectadas</p>
+                    : <p className="text-[11px] text-amber-600">⚠ No se detectaron coordenadas en el link (se guardará en notas)</p>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2">
               <button
